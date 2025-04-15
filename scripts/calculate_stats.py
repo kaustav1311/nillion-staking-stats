@@ -6,28 +6,25 @@ from decimal import Decimal, getcontext
 from datetime import datetime, timezone
 
 # Set precision for Decimal calculations
-getcontext().prec = 50
+getcontext().prec = 50 # Use sufficient precision
 
 # --- Configuration ---
 NIL_REST_API_BASE = "https://nilchain-api.nillion.network"
 INFLATION_ENDPOINT = "/cosmos/mint/v1beta1/inflation"
 POOL_ENDPOINT = "/cosmos/staking/v1beta1/pool"
 SUPPLY_ENDPOINT = "/cosmos/bank/v1beta1/supply/by_denom?denom=unil"
-# Endpoint to get bonded validators count efficiently
 VALIDATORS_ENDPOINT = "/cosmos/staking/v1beta1/validators?status=BOND_STATUS_BONDED&pagination.limit=1&pagination.count_total=true"
 
-# Output file path (relative to repository root)
-OUTPUT_FILE = "public/data/staking_stats.json"
-NIL_DECIMALS = 6 # Assumes 1 NIL = 1,000,000 unil
+OUTPUT_FILE = "data/staking_stats.json" # Relative to repo root
+NIL_DECIMALS = 6
 # --- End Configuration ---
 
 def fetch_data(url):
     """Fetches JSON data from a URL with basic error handling."""
     try:
         print(f"Fetching: {url}")
-        # Increased timeout for potentially slower API endpoints
         response = requests.get(url, timeout=30)
-        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status()
         print(f"  Status Code: {response.status_code}")
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -41,11 +38,16 @@ def calculate_stats():
     """Fetches Nillion chain data and calculates staking stats."""
     print(f"--- Starting Stat Calculation: {datetime.now(timezone.utc).isoformat()} ---")
     stats = {
+        # Calculated/Formatted Values
         "calculated_apr_percentage": None,
         "total_staked_nil": None,
-        "active_validator_count": None
+        "active_validator_count": None,
+        # Raw Values for APR Calculation (as strings for precision)
+        "raw_inflation_rate": None,
+        "raw_total_supply_unil": None,
+        "raw_bonded_tokens_unil": None,
     }
-    # Values needed for calculation
+    # Intermediate Decimal values
     inflation_rate = None
     bonded_tokens_unil = None
     total_supply_unil = None
@@ -55,7 +57,9 @@ def calculate_stats():
     inflation_data = fetch_data(NIL_REST_API_BASE + INFLATION_ENDPOINT)
     if inflation_data and 'inflation' in inflation_data:
         try:
-            inflation_rate = Decimal(inflation_data['inflation'])
+            inflation_rate_str = inflation_data['inflation']
+            inflation_rate = Decimal(inflation_rate_str)
+            stats["raw_inflation_rate"] = inflation_rate_str # Store raw string
             print(f"  Inflation Rate: {inflation_rate}")
         except Exception as e:
             print(f"  Error processing inflation rate: {e}")
@@ -67,9 +71,11 @@ def calculate_stats():
     pool_data = fetch_data(NIL_REST_API_BASE + POOL_ENDPOINT)
     if pool_data and 'pool' in pool_data and 'bonded_tokens' in pool_data['pool']:
         try:
-            bonded_tokens_unil = Decimal(pool_data['pool']['bonded_tokens'])
+            bonded_tokens_str = pool_data['pool']['bonded_tokens']
+            bonded_tokens_unil = Decimal(bonded_tokens_str)
+            stats["raw_bonded_tokens_unil"] = bonded_tokens_str # Store raw string
             print(f"  Bonded Tokens (unil): {bonded_tokens_unil}")
-            # Convert to NIL for saving
+            # Convert to NIL for display/convenience
             stats["total_staked_nil"] = float(bonded_tokens_unil / (Decimal(10)**NIL_DECIMALS))
             print(f"  Total Staked NIL: {stats['total_staked_nil']:.2f}")
         except Exception as e:
@@ -82,7 +88,9 @@ def calculate_stats():
     supply_data = fetch_data(NIL_REST_API_BASE + SUPPLY_ENDPOINT)
     if supply_data and 'amount' in supply_data and 'amount' in supply_data['amount']:
          try:
-            total_supply_unil = Decimal(supply_data['amount']['amount'])
+            total_supply_str = supply_data['amount']['amount']
+            total_supply_unil = Decimal(total_supply_str)
+            stats["raw_total_supply_unil"] = total_supply_str # Store raw string
             print(f"  Total Supply (unil): {total_supply_unil}")
          except Exception as e:
             print(f"  Error processing total supply: {e}")
@@ -99,7 +107,7 @@ def calculate_stats():
          except Exception as e:
             print(f"  Error processing validator count: {e}")
     else:
-         print("  Failed to fetch or parse validator count (pagination total might be missing).")
+         print("  Failed to fetch or parse validator count.")
 
 
     # 5. Calculate APR (only if all necessary components were fetched successfully)
@@ -107,15 +115,10 @@ def calculate_stats():
     if inflation_rate is not None and total_supply_unil is not None and bonded_tokens_unil is not None:
         if bonded_tokens_unil > 0:
             try:
-                # Basic formula: APR = (Inflation Rate * Total Supply) / Total Bonded Tokens
-                # Consider fetching community_tax from /cosmos/distribution/v1beta1/params if needed
-                # community_tax_rate = Decimal(dist_params_data['params']['community_tax'])
-                # effective_inflation = inflation_rate * (1 - community_tax_rate)
-                # raw_apr = (effective_inflation * total_supply_unil) / bonded_tokens_unil
-
+                # Formula: APR = (Inflation Rate * Total Supply) / Total Bonded Tokens
                 raw_apr = (inflation_rate * total_supply_unil) / bonded_tokens_unil
                 apr_percentage = raw_apr * 100
-                stats["calculated_apr_percentage"] = float(f"{apr_percentage:.4f}") # Round for consistency
+                stats["calculated_apr_percentage"] = float(f"{apr_percentage:.4f}") # Store rounded float
                 print(f"  Calculated APR: {stats['calculated_apr_percentage']}%")
             except Exception as e:
                 print(f"  Error calculating APR: {e}")
@@ -126,42 +129,63 @@ def calculate_stats():
         print("  Skipping APR calculation due to missing prerequisite data.")
 
     print(f"\n--- Stat Calculation Finished ---")
-    return stats # Return the dictionary containing all stats
+    return stats
 
 def save_stats_to_file(stats_data):
-    """Saves the calculated stats to a JSON file."""
+    """Saves the calculated stats to a JSON file, checking for changes first."""
     if stats_data is None:
         print("No stats data provided to save.")
         return
 
-    # Ensure the directory exists
-    output_dir = os.path.dirname(OUTPUT_FILE)
+    # Adjust path relative to the script's location
+    script_dir = os.path.dirname(__file__)
+    output_path = os.path.join(script_dir, '..', OUTPUT_FILE) # Assumes script is in 'scripts/' and output is in 'data/'
+    output_path = os.path.normpath(output_path) # Normalize path (e.g., remove ..)
+
+    output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
     # Add timestamp
     stats_data["last_updated_utc"] = datetime.now(timezone.utc).isoformat()
 
-    # Read existing data if file exists, to only update if values change
-    # This helps prevent unnecessary commits in the workflow
     try:
-        with open(OUTPUT_FILE, 'r') as f:
-            existing_data = json.load(f)
-        # Compare relevant fields, ignore timestamp for change detection
-        relevant_keys = ["calculated_apr_percentage", "total_staked_nil", "active_validator_count"]
-        if all(existing_data.get(k) == stats_data.get(k) for k in relevant_keys):
-             print(f"Data hasn't changed significantly. Skipping file write to {OUTPUT_FILE}.")
-             return # Exit without writing if data is the same
-    except (FileNotFoundError, json.JSONDecodeError):
-        print("No existing data file found or file is invalid. Writing new file.")
-        pass # Continue to write the file if it doesn't exist or is invalid
+        existing_data = {}
+        if os.path.exists(output_path):
+             with open(output_path, 'r') as f:
+                  try:
+                      existing_data = json.load(f)
+                  except json.JSONDecodeError:
+                      print(f"Existing data file {output_path} is invalid. Overwriting.")
 
-    try:
-        with open(OUTPUT_FILE, 'w') as f:
+        # Define keys to compare for changes (include raw values now)
+        relevant_keys = [
+            "calculated_apr_percentage", "total_staked_nil", "active_validator_count",
+            "raw_inflation_rate", "raw_total_supply_unil", "raw_bonded_tokens_unil"
+        ]
+        # Check if ALL relevant keys exist in both and have the same value
+        has_changed = False
+        if not existing_data: # Always write if no existing data
+            has_changed = True
+        else:
+            for k in relevant_keys:
+                # Treat missing key in either dict as a change
+                if stats_data.get(k) != existing_data.get(k):
+                    has_changed = True
+                    print(f"Detected change in '{k}': '{existing_data.get(k)}' -> '{stats_data.get(k)}'")
+                    break # No need to check further keys
+
+        if not has_changed:
+             print(f"Data hasn't changed significantly. Skipping file write to {output_path}.")
+             return # Exit without writing if data is the same
+
+        # Write the updated data if changed
+        with open(output_path, 'w') as f:
             json.dump(stats_data, f, indent=2)
-        print(f"Successfully saved stats to {OUTPUT_FILE}")
+        print(f"Successfully saved stats to {output_path}")
+
     except IOError as e:
-        print(f"Error writing stats to file {OUTPUT_FILE}: {e}")
+        print(f"Error writing stats to file {output_path}: {e}")
     except TypeError as e:
          print(f"Error serializing stats data to JSON: {e} - Data: {stats_data}")
 
