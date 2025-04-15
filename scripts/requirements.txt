@@ -1,1 +1,2 @@
-
+# scripts/requirements.txt
+requests>=2.25.0,<3.0.0
