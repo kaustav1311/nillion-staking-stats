@@ -2,17 +2,17 @@
 name: Update Staking Stats Twice Daily
 
 on:
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch: # Allows manual triggering from the Actions tab
   schedule:
-    # Runs approx every day at 05:00 and 17:00 UTC
-    # Use standard cron syntax: Minute Hour DayOfMonth Month DayOfWeek
+    # Runs twice daily at 05:00 and 17:00 UTC
     - cron: '0 5,17 * * *'
 
 jobs:
   update-stats:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed to commit back to the repo
+      # Required to allow the job to commit changes back to the repository
+      contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -20,30 +20,29 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # Or your preferred version
+          python-version: '3.10' # Or a version compatible with your script
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Assuming requirements.txt is in the scripts/ directory
+          # Install requirements from the scripts/ directory
           pip install -r scripts/requirements.txt
 
       - name: Run Stats Calculation Script
-        # Assuming the script is in the scripts/ directory
+        # Execute the python script located in the scripts/ directory
         run: python scripts/calculate_stats.py
 
       - name: Commit and push if changed
+        # Uses a popular action to automatically commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: Update daily staking stats data"
-          # Ensure this path matches the OUTPUT_FILE in the Python script
-          file_pattern: public/data/staking_stats.json
+          # Specifies which file(s) to check for changes and commit
+          file_pattern: data/staking_stats.json
+          # Standard commit options
           commit_options: '--no-verify --signoff'
-          # Optional: Define commit author/email if desired
+          # Optional: Configure the Git author and committer
           # commit_user_name: GitHub Actions Bot
           # commit_user_email: actions@github.com
           # commit_author: GitHub Actions Bot <actions@github.com>
-          # Use '--force' only if necessary (e.g., if workflow runs might conflict)
-          # push_options: '--force'
-          skip_dirty_check: false # Only commit if file changes
-          skip_fetch: true # Optimization: Assume checkout fetched latest
+          # skip_fetch: true # Optimization: assumes checkout got latest
