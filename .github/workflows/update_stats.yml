@@ -1,1 +1,49 @@
+# .github/workflows/update_stats.yml
+name: Update Staking Stats Twice Daily
 
+on:
+  workflow_dispatch: # Allows manual triggering
+  schedule:
+    # Runs approx every day at 05:00 and 17:00 UTC
+    # Use standard cron syntax: Minute Hour DayOfMonth Month DayOfWeek
+    - cron: '0 5,17 * * *'
+
+jobs:
+  update-stats:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed to commit back to the repo
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' # Or your preferred version
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Assuming requirements.txt is in the scripts/ directory
+          pip install -r scripts/requirements.txt
+
+      - name: Run Stats Calculation Script
+        # Assuming the script is in the scripts/ directory
+        run: python scripts/calculate_stats.py
+
+      - name: Commit and push if changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: Update daily staking stats data"
+          # Ensure this path matches the OUTPUT_FILE in the Python script
+          file_pattern: public/data/staking_stats.json
+          commit_options: '--no-verify --signoff'
+          # Optional: Define commit author/email if desired
+          # commit_user_name: GitHub Actions Bot
+          # commit_user_email: actions@github.com
+          # commit_author: GitHub Actions Bot <actions@github.com>
+          # Use '--force' only if necessary (e.g., if workflow runs might conflict)
+          # push_options: '--force'
+          skip_dirty_check: false # Only commit if file changes
+          skip_fetch: true # Optimization: Assume checkout fetched latest
