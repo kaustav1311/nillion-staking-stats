@@ -1,9 +1,9 @@
 {
-  "calculated_apr_percentage": 29.0427,
-  "total_staked_nil": 34664266.03438,
+  "calculated_apr_percentage": 29.0727,
+  "total_staked_nil": 34628901.196848,
   "active_validator_count": 42,
   "raw_inflation_rate": "0.010000000000000000",
-  "raw_total_supply_unil": "1006742654530243",
-  "raw_bonded_tokens_unil": "34664266034380",
-  "last_updated_utc": "2026-01-08T05:21:29.467135+00:00"
+  "raw_total_supply_unil": "1006754968676998",
+  "raw_bonded_tokens_unil": "34628901196848",
+  "last_updated_utc": "2026-01-08T17:23:51.828945+00:00"
 }
